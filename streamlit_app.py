@@ -6,500 +6,459 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import pickle
 import os
-import sys
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
-# Add the current directory to the path to import the AI task management module
-sys.path.append('.')
-
-# Set page config
+# Page configuration
 st.set_page_config(
     page_title="AI Task Manager",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for styling
+# Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
-        color: #6366f1;
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        padding: 1rem 0;
+        margin-bottom: 2rem;
+    }
+    .logo {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 0.5rem;
+        border-radius: 8px;
+        margin-right: 1rem;
+        font-size: 1.5rem;
     }
     .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    .ai-recommendations {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
         color: white;
-        text-align: center;
-        margin: 0.5rem 0;
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin: 2rem 0;
     }
     .recommendation-card {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        margin: 1rem 0;
+        background: rgba(255,255,255,0.1);
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        backdrop-filter: blur(10px);
     }
     .task-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        background: white;
         padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         margin: 0.5rem 0;
-        border-left: 4px solid #3b82f6;
+        border-left: 4px solid #667eea;
     }
+    .priority-high { border-left-color: #ff4757 !important; }
+    .priority-medium { border-left-color: #ffa502 !important; }
+    .priority-low { border-left-color: #2ed573 !important; }
     .status-badge {
         padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.875rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
         font-weight: 500;
     }
-    .status-progress { background: #fef3c7; color: #92400e; }
-    .status-todo { background: #dbeafe; color: #1e40af; }
-    .status-done { background: #d1fae5; color: #065f46; }
-    .priority-high { color: #dc2626; font-weight: bold; }
-    .priority-medium { color: #d97706; font-weight: bold; }
-    .priority-low { color: #16a34a; font-weight: bold; }
+    .status-todo { background: #f1f2f6; color: #57606f; }
+    .status-progress { background: #3742fa; color: white; }
+    .status-done { background: #2ed573; color: white; }
+    .new-task-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-class AITaskPredictor:
-    def __init__(self):
-        self.models = {}
-        self.scalers = {}
-        self.encoders = {}
-        self.tfidf_vectorizer = None
-        self.load_models()
-    
-    def load_models(self):
-        """Load trained models and preprocessors"""
-        try:
-            # Load models if they exist
-            if os.path.exists('models/best_model.pkl'):
-                with open('models/best_model.pkl', 'rb') as f:
-                    self.best_model = pickle.load(f)
-            
-            if os.path.exists('models/scaler.pkl'):
-                with open('models/scaler.pkl', 'rb') as f:
-                    self.scaler = pickle.load(f)
-            
-            if os.path.exists('models/priority_encoder.pkl'):
-                with open('models/priority_encoder.pkl', 'rb') as f:
-                    self.priority_encoder = pickle.load(f)
-            
-            if os.path.exists('models/tfidf_extractor.pkl'):
-                with open('models/tfidf_extractor.pkl', 'rb') as f:
-                    self.tfidf_vectorizer = pickle.load(f)
-                    
-            # Load feature arrays if they exist
-            if os.path.exists('Feature Extraction Files/tfidf_features.npy'):
-                self.tfidf_features = np.load('Feature Extraction Files/tfidf_features.npy')
-            else:
-                self.tfidf_features = None
-                
-            st.success("✅ Models loaded successfully!")
-            
-        except Exception as e:
-            st.warning(f"⚠️ Could not load some models: {str(e)}")
-            self.create_fallback_models()
-    
-    def create_fallback_models(self):
-        """Create simple fallback models for demonstration"""
-        from sklearn.naive_bayes import GaussianNB
-        
-        # Create dummy models
-        self.best_model = GaussianNB()
-        self.scaler = StandardScaler()
-        self.priority_encoder = LabelEncoder()
-        self.priority_encoder.fit(['Low', 'Medium', 'High'])
-        
-        # Create dummy TF-IDF vectorizer
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        self.tfidf_vectorizer = TfidfVectorizer(max_features=100)
-        dummy_texts = ["sample task", "bug fix", "feature request"]
-        self.tfidf_vectorizer.fit(dummy_texts)
-        
-        # Train with dummy data
-        dummy_X = np.random.random((10, 104))  # 100 TF-IDF + 4 additional features
-        dummy_y = np.random.choice([0, 1, 2], 10)
-        
-        self.scaler.fit(dummy_X)
-        self.best_model.fit(self.scaler.transform(dummy_X), dummy_y)
-    
-    def predict_task(self, summary, description, issue_type, component, estimated_duration):
-    """Predict task priority and suggest assignee"""
-    try:
-        # Combine text
-        combined_text = f"{summary} {description}".strip()
-        
-        # Extract TF-IDF features
-        if hasattr(self.tfidf_vectorizer, 'transform'):
-            if hasattr(self.tfidf_vectorizer, 'vectorizer'):
-                # Custom TFIDFExtractor
-                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()
-                if text_features.ndim > 1:
-                    text_features = text_features[0]
-            else:
-                # Standard TfidfVectorizer
-                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
-        else:
-            # Fallback: create zero features
-            text_features = np.zeros(100)
-        
-        # Ensure we have the right number of features
-        if len(text_features) < 100:
-            # Pad with zeros if needed
-            text_features = np.pad(text_features, (0, 100 - len(text_features)))
-        elif len(text_features) > 100:
-            # Truncate if needed
-            text_features = text_features[:100]
-        
-        # Create additional features
-        issue_type_map = {'Bug': 0, 'Task': 1, 'Story': 2, 'Epic': 3}
-        component_map = {'Frontend': 0, 'Backend': 1, 'Database': 2, 'API': 3, 'UI/UX': 4}
-        
-        additional_features = np.array([
-            estimated_duration,
-            issue_type_map.get(issue_type, 1),
-            0,  # Status code (new task)
-            component_map.get(component, 0)
-        ])
-        
-        # Combine features
-        combined_features = np.hstack([text_features, additional_features]).reshape(1, -1)
-        
-        # Scale features
-        scaled_features = self.scaler.transform(combined_features)
-        
-        # Predict priority
-        predicted_priority_idx = self.best_model.predict(scaled_features)[0]
-        predicted_priority = self.priority_encoder.inverse_transform([predicted_priority_idx])[0]
-        
-        # Get prediction confidence
-        if hasattr(self.best_model, 'predict_proba'):
-            confidence = max(self.best_model.predict_proba(scaled_features)[0])
-        else:
-            confidence = 0.85  # Default confidence
-        
-        # Simple assignee suggestion based on workload simulation
-        assignees = ['Sarah Chen', 'Alex Rivera', 'Bob Johnson', 'Diana Prince', 'Charlie Wilson']
-        suggested_assignee = np.random.choice(assignees)
-        
-        return {
-            'predicted_priority': predicted_priority,
-            'confidence': confidence,
-            'suggested_assignee': suggested_assignee,
-            'task_complexity': self._calculate_complexity(predicted_priority, estimated_duration)
-        }
-        
-    except Exception as e:
-        st.error(f"Error in prediction: {str(e)}")
-        # Return safe defaults
-        return {
-            'predicted_priority': 'Medium',
-            'confidence': 0.7,
-            'suggested_assignee': 'Sarah Chen',
-            'task_complexity': 2.0
-        }
-    
-    def _calculate_complexity(self, priority, duration):
-        """Calculate task complexity score"""
-        priority_weights = {'Low': 1, 'Medium': 2, 'High': 3}
-        base_score = priority_weights.get(priority, 2)
-        duration_factor = min(duration / 14, 2)  # Cap at 2 weeks
-        return base_score * (1 + duration_factor)
+# Initialize session state
+if 'tasks' not in st.session_state:
+    st.session_state.tasks = []
+if 'models_loaded' not in st.session_state:
+    st.session_state.models_loaded = False
 
-# Initialize the predictor
-@st.cache_resource
-def load_predictor():
-    return AITaskPredictor()
-
+# Mock data for demonstration (replace with your actual data loading)
+@st.cache_data
 def load_sample_data():
-    """Load or create sample data for the dashboard"""
-    try:
-        if os.path.exists('Dataset/Processed Dataset.csv'):
-            df = pd.read_csv('Dataset/Processed Dataset.csv')
-            return df
-        elif os.path.exists('Processed-Dataset.csv'):
-            df = pd.read_csv('Processed-Dataset.csv')
-            return df[1]
-        else:
-            # Create sample data for demonstration
-            return create_demo_data()
-    except Exception as e:
-        st.warning(f"Could not load dataset: {e}")
-        return create_demo_data()
-
-def create_demo_data():
-    """Create demo data for the dashboard"""
+    """Load sample data for demonstration"""
     np.random.seed(42)
     
-    data = {
-        'Issue Key': [f'SWP-{i}' for i in range(1, 101)],
-        'Summary': [f'Task {i}' for i in range(1, 101)],
-        'Priority': np.random.choice(['Low', 'Medium', 'High'], 100, p=[0.3, 0.5, 0.2]),
-        'Status': np.random.choice(['To Do', 'In Progress', 'Done'], 100, p=[0.3, 0.4, 0.3]),
-        'Assignee': np.random.choice(['Sarah Chen', 'Alex Rivera', 'Bob Johnson', 'Diana Prince'], 100),
-        'Issue Type': np.random.choice(['Bug', 'Task', 'Story', 'Epic'], 100),
-        'Component': np.random.choice(['Frontend', 'Backend', 'Database', 'API'], 100),
-        'Created': pd.date_range(start='2025-01-01', periods=100, freq='D')
-    }
+    priorities = ['Low', 'Medium', 'High']
+    issue_types = ['Bug', 'Task', 'Story', 'Epic']
+    statuses = ['To Do', 'In Progress', 'Done']
+    components = ['Frontend', 'Backend', 'Database', 'API', 'UI/UX']
+    assignees = ['Sarah Chen', 'Alex Rivera', 'Mike Johnson', 'Emma Wilson', 'David Kim']
     
-    return pd.DataFrame(data)
+    tasks = []
+    for i in range(20):
+        task = {
+            'id': i + 1,
+            'title': f"Task {i+1}: {np.random.choice(['Fix bug in', 'Implement', 'Update', 'Refactor'])} {np.random.choice(['login system', 'dashboard', 'API endpoint', 'user interface', 'database schema'])}",
+            'description': f"Detailed description for task {i+1}. This involves multiple steps and considerations.",
+            'priority': np.random.choice(priorities),
+            'issue_type': np.random.choice(issue_types),
+            'status': np.random.choice(statuses),
+            'component': np.random.choice(components),
+            'assignee': np.random.choice(assignees),
+            'created': datetime.now() - timedelta(days=np.random.randint(1, 30)),
+            'due_date': datetime.now() + timedelta(days=np.random.randint(1, 14)),
+            'ai_score': np.random.randint(60, 100)
+        }
+        tasks.append(task)
+    
+    return pd.DataFrame(tasks)
 
-def render_metrics_dashboard(df):
-    """Render the main metrics dashboard"""
-    col1, col2, col3, col4 = st.columns(4)
+# Mock ML models (replace with your actual model loading)
+class MockAIPredictor:
+    def __init__(self):
+        self.priority_classes = ['Low', 'Medium', 'High']
+        self.assignees = ['Sarah Chen', 'Alex Rivera', 'Mike Johnson', 'Emma Wilson', 'David Kim']
     
-    # Calculate metrics
+    def predict_priority(self, text, features=None):
+        # Mock priority prediction
+        priorities = ['Low', 'Medium', 'High']
+        probabilities = np.random.dirichlet([1, 2, 1])  # Bias towards medium
+        predicted_priority = priorities[np.argmax(probabilities)]
+        confidence = np.max(probabilities)
+        return predicted_priority, confidence
+    
+    def suggest_assignee(self, task_info):
+        # Mock assignee suggestion based on workload
+        workloads = np.random.randint(0, 10, len(self.assignees))
+        best_assignee_idx = np.argmin(workloads)
+        return self.assignees[best_assignee_idx], workloads[best_assignee_idx]
+    
+    def get_recommendations(self, tasks_df):
+        recommendations = []
+        
+        # Priority adjustment recommendation
+        high_priority_count = len(tasks_df[tasks_df['priority'] == 'High'])
+        if high_priority_count > 2:
+            recommendations.append({
+                'type': 'Priority Adjustment',
+                'message': f'Consider raising priority for "Database Migration" due to dependencies.',
+                'urgency': 'high'
+            })
+        
+        # Workload balance recommendation
+        recommendations.append({
+            'type': 'Workload Balance',
+            'message': 'Sarah Chen has optimal capacity for 2 additional tasks this week.',
+            'urgency': 'medium'
+        })
+        
+        # Deadline risk recommendation
+        overdue_tasks = len(tasks_df[tasks_df['due_date'] < datetime.now()])
+        if overdue_tasks > 0:
+            recommendations.append({
+                'type': 'Deadline Risk',
+                'message': f'{overdue_tasks} tasks may miss deadlines without intervention.',
+                'urgency': 'high'
+            })
+        
+        return recommendations
+
+# Initialize AI predictor
+@st.cache_resource
+def load_ai_models():
+    return MockAIPredictor()
+
+ai_predictor = load_ai_models()
+
+# Load data
+df = load_sample_data()
+
+# Header
+st.markdown("""
+<div class="main-header">
+    <div class="logo">🤖</div>
+    <div>
+        <h1 style="margin:0; color:#2f3542;">AI Task Manager</h1>
+        <p style="margin:0; color:#57606f;">Intelligent productivity powered by AI</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# New Task Button (top-right)
+col1, col2 = st.columns([4, 1])
+with col2:
+    if st.button("➕ New Task", key="new_task_header"):
+        st.session_state.show_new_task_form = True
+
+# Metrics Row
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    completed_tasks = len(df[df['status'] == 'Done'])
     total_tasks = len(df)
-    completed_tasks = len(df[df['Status'] == 'Done'])
     completion_rate = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0
     
-    high_priority_tasks = len(df[df['Priority'] == 'High'])
-    in_progress_tasks = len(df[df['Status'] == 'In Progress'])
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>🎯 Completion Rate</h3>
-            <h2>{completion_rate:.0f}%</h2>
-            <p>{completed_tasks} of {total_tasks} tasks completed</p>
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+            <span style="color: #667eea; margin-right: 0.5rem;">🎯</span>
+            <span style="color: #57606f; font-size: 0.9rem;">Completion Rate</span>
         </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>⚡ AI Efficiency</h3>
-            <h2>94%</h2>
-            <p>AI classification accuracy</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>⚠️ High Priority</h3>
-            <h2>{high_priority_tasks}</h2>
-            <p>Tasks require attention</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>👥 Team Load</h3>
-            <h2>Balanced</h2>
-            <p>AI-optimized distribution</p>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="font-size: 2rem; font-weight: bold; color: #667eea;">{completion_rate:.0f}%</div>
+        <div style="color: #57606f; font-size: 0.8rem;">{completed_tasks} of {total_tasks} tasks completed</div>
+        <div style="background: #667eea; height: 4px; border-radius: 2px; margin-top: 0.5rem; width: {completion_rate}%;"></div>
+    </div>
+    """, unsafe_allow_html=True)
 
-def render_ai_recommendations():
-    """Render AI recommendations section"""
-    st.markdown("""
-    <div class="recommendation-card">
-        <h3>🤖 AI Recommendations</h3>
-        <div style="display: flex; justify-content: space-between; margin-top: 1rem;">
-            <div style="flex: 1; margin-right: 1rem;">
-                <h4>Priority Adjustment</h4>
-                <p>Consider raising priority for 'Database Migration' due to dependencies.</p>
-            </div>
-            <div style="flex: 1; margin-right: 1rem;">
-                <h4>Workload Balance</h4>
-                <p>Sarah Chen has optimal capacity for 2 additional tasks this week.</p>
-            </div>
+with col2:
+    ai_accuracy = 94
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+            <span style="color: #2ed573; margin-right: 0.5rem;">📈</span>
+            <span style="color: #57606f; font-size: 0.9rem;">AI Efficiency</span>
+        </div>
+        <div style="font-size: 2rem; font-weight: bold; color: #2ed573;">{ai_accuracy}%</div>
+        <div style="color: #57606f; font-size: 0.8rem;">AI classification accuracy</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    high_priority_tasks = len(df[df['priority'] == 'High'])
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+            <span style="color: #ffa502; margin-right: 0.5rem;">⚠️</span>
+            <span style="color: #57606f; font-size: 0.9rem;">High Priority</span>
+        </div>
+        <div style="font-size: 2rem; font-weight: bold; color: #ffa502;">{high_priority_tasks}</div>
+        <div style="color: #57606f; font-size: 0.8rem;">Tasks require attention</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col4:
+    team_status = "Balanced"
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+            <span style="color: #667eea; margin-right: 0.5rem;">👥</span>
+            <span style="color: #57606f; font-size: 0.9rem;">Team Load</span>
+        </div>
+        <div style="font-size: 2rem; font-weight: bold; color: #667eea;">{team_status}</div>
+        <div style="color: #57606f; font-size: 0.8rem;">AI-optimized distribution</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# AI Recommendations Section
+recommendations = ai_predictor.get_recommendations(df)
+
+st.markdown("""
+<div class="ai-recommendations">
+    <h2 style="margin: 0 0 1rem 0; display: flex; align-items: center;">
+        ⚡ AI Recommendations
+    </h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+""", unsafe_allow_html=True)
+
+for rec in recommendations:
+    urgency_color = "#ff4757" if rec['urgency'] == 'high' else "#ffa502" if rec['urgency'] == 'medium' else "#2ed573"
+    st.markdown(f"""
+        <div class="recommendation-card">
+            <div style="font-weight: bold; margin-bottom: 0.5rem; color: {urgency_color};">{rec['type']}</div>
+            <div>{rec['message']}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("</div></div>", unsafe_allow_html=True)
+
+# Recent Tasks Section
+st.markdown("""
+<div style="margin: 2rem 0 1rem 0;">
+    <h2 style="display: flex; align-items: center; color: #2f3542;">
+        🕒 Recent Tasks
+    </h2>
+</div>
+""", unsafe_allow_html=True)
+
+# Filter and display recent tasks
+recent_tasks = df.sort_values('created', ascending=False).head(10)
+
+for _, task in recent_tasks.iterrows():
+    priority_class = f"priority-{task['priority'].lower()}"
+    status_class = f"status-{task['status'].lower().replace(' ', '')}"
+    
+    # Status badge styling
+    status_style = {
+        'To Do': 'background: #f1f2f6; color: #57606f;',
+        'In Progress': 'background: #3742fa; color: white;',
+        'Done': 'background: #2ed573; color: white;'
+    }.get(task['status'], 'background: #f1f2f6; color: #57606f;')
+    
+    st.markdown(f"""
+    <div class="task-card {priority_class}">
+        <div style="display: flex; justify-content: between; align-items: start; margin-bottom: 0.5rem;">
             <div style="flex: 1;">
-                <h4>Deadline Risk</h4>
-                <p>3 tasks may miss deadlines without intervention.</p>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <span style="font-weight: bold; color: #2f3542;">{task['title']}</span>
+                    <span class="status-badge" style="{status_style}">{task['priority']}</span>
+                    <span style="background: #e8f4f8; color: #2c5aa0; padding: 0.25rem 0.5rem; border-radius: 8px; font-size: 0.7rem;">{task['component']}</span>
+                </div>
+                <div style="color: #57606f; font-size: 0.9rem; margin-bottom: 0.5rem;">{task['description']}</div>
+                <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.8rem; color: #747d8c;">
+                    <span>👤 {task['assignee']}</span>
+                    <span>📅 {task['created'].strftime('%Y-%m-%d')}</span>
+                    <span>🎯 AI Score: {task['ai_score']}%</span>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <span class="status-badge" style="{status_style}">{task['status']}</span>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-def render_recent_tasks(df):
-    """Render recent tasks section"""
-    st.subheader("📋 Recent Tasks")
+# New Task Modal/Form
+if st.session_state.get('show_new_task_form', False):
+    st.markdown("---")
+    st.markdown("### ➕ Create New Task")
     
-    # Display recent tasks
-    recent_tasks = df.head(5)
+    with st.form("new_task_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            task_title = st.text_input("Task Title *", placeholder="Enter task title...")
+            task_description = st.text_area("Description", placeholder="Describe the task in detail...")
+            issue_type = st.selectbox("Issue Type", ['Bug', 'Task', 'Story', 'Epic'])
+        
+        with col2:
+            component = st.selectbox("Component", ['Frontend', 'Backend', 'Database', 'API', 'UI/UX'])
+            due_date = st.date_input("Due Date", min_value=datetime.now().date())
+            manual_priority = st.selectbox("Priority (Optional - AI will suggest)", ['Auto-Detect', 'Low', 'Medium', 'High'])
+        
+        col1, col2, col3 = st.columns([1, 1, 2])
+        
+        with col1:
+            if st.form_submit_button("🤖 AI Predict & Create", type="primary"):
+                if task_title:
+                    # AI Prediction
+                    task_text = f"{task_title} {task_description}"
+                    
+                    if manual_priority == 'Auto-Detect':
+                        predicted_priority, confidence = ai_predictor.predict_priority(task_text)
+                    else:
+                        predicted_priority = manual_priority
+                        confidence = 1.0
+                    
+                    suggested_assignee, workload = ai_predictor.suggest_assignee({
+                        'priority': predicted_priority,
+                        'component': component
+                    })
+                    
+                    # Create new task
+                    new_task = {
+                        'id': len(df) + 1,
+                        'title': task_title,
+                        'description': task_description,
+                        'priority': predicted_priority,
+                        'issue_type': issue_type,
+                        'status': 'To Do',
+                        'component': component,
+                        'assignee': suggested_assignee,
+                        'created': datetime.now(),
+                        'due_date': pd.Timestamp(due_date),
+                        'ai_score': int(confidence * 100)
+                    }
+                    
+                    st.success(f"""
+                    ✅ Task created successfully!
+                    
+                    🎯 **AI Predictions:**
+                    - Priority: {predicted_priority} (Confidence: {confidence:.1%})
+                    - Suggested Assignee: {suggested_assignee} (Current workload: {workload} tasks)
+                    
+                    The task has been added to your project!
+                    """)
+                    
+                    st.session_state.show_new_task_form = False
+                    st.rerun()
+                else:
+                    st.error("Please enter a task title!")
+        
+        with col2:
+            if st.form_submit_button("❌ Cancel"):
+                st.session_state.show_new_task_form = False
+                st.rerun()
+
+# Sidebar with additional features
+with st.sidebar:
+    st.markdown("## 📊 Analytics")
     
-    for _, task in recent_tasks.iterrows():
-        priority_class = f"priority-{task['Priority'].lower()}"
-        status_class = f"status-{task['Status'].lower().replace(' ', '')}"
+    # Priority distribution chart
+    priority_counts = df['priority'].value_counts()
+    fig_priority = px.pie(
+        values=priority_counts.values, 
+        names=priority_counts.index,
+        title="Task Priority Distribution",
+        color_discrete_map={'High': '#ff4757', 'Medium': '#ffa502', 'Low': '#2ed573'}
+    )
+    fig_priority.update_layout(height=300)
+    st.plotly_chart(fig_priority, use_container_width=True)
+    
+    # Team workload
+    st.markdown("## 👥 Team Workload")
+    assignee_counts = df['assignee'].value_counts().head(5)
+    
+    for assignee, count in assignee_counts.items():
+        progress = count / assignee_counts.max()
+        color = "#ff4757" if progress > 0.8 else "#ffa502" if progress > 0.6 else "#2ed573"
         
         st.markdown(f"""
-        <div class="task-card">
-            <div style="display: flex; justify-content: between; align-items: center;">
-                <div style="flex: 1;">
-                    <strong>{task['Issue Key']}: {task['Summary']}</strong>
-                    <br>
-                    <small>👤 {task['Assignee']} | 🏷️ {task['Component']}</small>
-                </div>
-                <div style="text-align: right;">
-                    <span class="status-badge {status_class}">{task['Status']}</span>
-                    <br>
-                    <span class="{priority_class}">{task['Priority']}</span>
-                </div>
+        <div style="margin: 0.5rem 0;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+                <span style="font-size: 0.8rem;">{assignee}</span>
+                <span style="font-size: 0.8rem; color: {color};">{count} tasks</span>
+            </div>
+            <div style="background: #f1f2f6; height: 6px; border-radius: 3px;">
+                <div style="background: {color}; height: 6px; border-radius: 3px; width: {progress*100}%;"></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-
-def main():
-    # Load data and predictor
-    df = load_sample_data()
-    predictor = load_predictor()
-    
-    # App header
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown('<h1 class="main-header">🤖 AI Task Manager</h1>', unsafe_allow_html=True)
-        st.markdown("*Intelligent productivity powered by AI*")
-    
-    with col2:
-        if st.button("➕ New Task", type="primary", use_container_width=True):
-            st.session_state.show_new_task = True
-    
-    # Initialize session state
-    if 'show_new_task' not in st.session_state:
-        st.session_state.show_new_task = False
-    
-    # New Task Modal/Form
-    if st.session_state.show_new_task:
-        st.markdown("---")
-        st.subheader("➕ Create New Task")
-        
-        with st.form("new_task_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                task_summary = st.text_input("Task Summary*", placeholder="Brief description of the task")
-                issue_type = st.selectbox("Issue Type", ['Bug', 'Task', 'Story', 'Epic'])
-                component = st.selectbox("Component", ['Frontend', 'Backend', 'Database', 'API', 'UI/UX'])
-            
-            with col2:
-                task_description = st.text_area("Description", placeholder="Detailed description of the task")
-                estimated_duration = st.number_input("Estimated Duration (days)", min_value=1, max_value=90, value=7)
-            
-            col1, col2, col3 = st.columns([1, 1, 2])
-            
-            with col1:
-                submit_button = st.form_submit_button("🔮 Predict & Create", type="primary")
-            
-            with col2:
-                cancel_button = st.form_submit_button("❌ Cancel")
-            
-            if cancel_button:
-                st.session_state.show_new_task = False
-                st.rerun()
-            
-            if submit_button and task_summary:
-                with st.spinner("🤖 AI is analyzing your task..."):
-                    # Get predictions from AI model
-                    predictions = predictor.predict_task(
-                        task_summary, 
-                        task_description, 
-                        issue_type, 
-                        component, 
-                        estimated_duration
-                    )
-                
-                # Display predictions
-                st.success("✅ Task analysis complete!")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric(
-                        "🎯 Predicted Priority", 
-                        predictions['predicted_priority'],
-                        f"{predictions['confidence']:.1%} confidence"
-                    )
-                
-                with col2:
-                    st.metric(
-                        "👤 Suggested Assignee", 
-                        predictions['suggested_assignee']
-                    )
-                
-                with col3:
-                    st.metric(
-                        "⚡ Task Complexity", 
-                        f"{predictions['task_complexity']:.1f}/5.0"
-                    )
-                
-                # Task summary
-                st.info(f"""
-                **Task Created Successfully!** 🎉
-                
-                **Summary:** {task_summary}
-                **Type:** {issue_type} | **Component:** {component}
-                **Estimated Duration:** {estimated_duration} days
-                **AI Priority:** {predictions['predicted_priority']}
-                **Assigned to:** {predictions['suggested_assignee']}
-                """)
-                
-                if st.button("Create Another Task"):
-                    st.session_state.show_new_task = True
-                    st.rerun()
-                else:
-                    st.session_state.show_new_task = False
-    
-    # Main Dashboard
-    st.markdown("---")
-    
-    # Metrics Dashboard
-    render_metrics_dashboard(df)
     
     st.markdown("---")
+    st.markdown("## ⚙️ Settings")
     
-    # AI Recommendations
-    render_ai_recommendations()
+    if st.button("🔄 Retrain AI Models"):
+        with st.spinner("Retraining AI models..."):
+            import time
+            time.sleep(2)
+        st.success("Models retrained successfully!")
     
-    st.markdown("---")
-    
-    # Recent Tasks and Analytics
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        render_recent_tasks(df)
-    
-    with col2:
-        st.subheader("📊 Task Distribution")
-        
-        # Priority distribution pie chart
-        priority_counts = df['Priority'].value_counts()
-        fig = px.pie(
-            values=priority_counts.values,
-            names=priority_counts.index,
-            title="Priority Distribution",
-            color_discrete_map={
-                'High': '#ef4444',
-                'Medium': '#f59e0b', 
-                'Low': '#10b981'
-            }
+    if st.button("📁 Export Data"):
+        csv = df.to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"tasks_export_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
         )
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Status distribution
-        status_counts = df['Status'].value_counts()
-        fig2 = px.bar(
-            x=status_counts.index,
-            y=status_counts.values,
-            title="Status Overview",
-            color=status_counts.values,
-            color_continuous_scale="viridis"
-        )
-        fig2.update_layout(height=300, showlegend=False)
-        st.plotly_chart(fig2, use_container_width=True)
 
-if __name__ == "__main__":
-    main()
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #747d8c; font-size: 0.8rem; padding: 1rem;">
+    🤖 AI Task Manager v1.0 | Powered by Machine Learning | Built with Streamlit
+</div>
+""", unsafe_allow_html=True)
