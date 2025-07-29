@@ -355,6 +355,8 @@ def main():
     # Initialize session state
     if 'show_new_task' not in st.session_state:
         st.session_state.show_new_task = False
+    if 'task_created' not in st.session_state:
+        st.session_state.task_created = False
     
     # New Task Modal/Form
     if st.session_state.show_new_task:
@@ -380,63 +382,75 @@ def main():
             
             with col2:
                 cancel_button = st.form_submit_button("❌ Cancel")
+        
+        # Handle form submission OUTSIDE the form
+        if cancel_button:
+            st.session_state.show_new_task = False
+            st.session_state.task_created = False
+            st.rerun()
+        
+        if submit_button and task_summary:
+            with st.spinner("🤖 AI is analyzing your task..."):
+                # Get predictions from AI model
+                predictions = predictor.predict_task(
+                    task_summary, 
+                    task_description, 
+                    issue_type, 
+                    component, 
+                    estimated_duration
+                )
             
-            if cancel_button:
-                st.session_state.show_new_task = False
-                st.rerun()
+            # Display predictions
+            st.success("✅ Task analysis complete!")
             
-            if submit_button and task_summary:
-                with st.spinner("🤖 AI is analyzing your task..."):
-                    # Get predictions from AI model
-                    predictions = predictor.predict_task(
-                        task_summary, 
-                        task_description, 
-                        issue_type, 
-                        component, 
-                        estimated_duration
-                    )
-                
-                # Display predictions
-                st.success("✅ Task analysis complete!")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric(
-                        "🎯 Predicted Priority", 
-                        predictions['predicted_priority'],
-                        f"{predictions['confidence']:.1%} confidence"
-                    )
-                
-                with col2:
-                    st.metric(
-                        "👤 Suggested Assignee", 
-                        predictions['suggested_assignee']
-                    )
-                
-                with col3:
-                    st.metric(
-                        "⚡ Task Complexity", 
-                        f"{predictions['task_complexity']:.1f}/5.0"
-                    )
-                
-                # Task summary
-                st.info(f"""
-                **Task Created Successfully!** 🎉
-                
-                **Summary:** {task_summary}
-                **Type:** {issue_type} | **Component:** {component}
-                **Estimated Duration:** {estimated_duration} days
-                **AI Priority:** {predictions['predicted_priority']}
-                **Assigned to:** {predictions['suggested_assignee']}
-                """)
-                
-                if st.button("Create Another Task"):
-                    st.session_state.show_new_task = True
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "🎯 Predicted Priority", 
+                    predictions['predicted_priority'],
+                    f"{predictions['confidence']:.1%} confidence"
+                )
+            
+            with col2:
+                st.metric(
+                    "👤 Suggested Assignee", 
+                    predictions['suggested_assignee']
+                )
+            
+            with col3:
+                st.metric(
+                    "⚡ Task Complexity", 
+                    f"{predictions['task_complexity']:.1f}/5.0"
+                )
+            
+            # Task summary
+            st.info(f"""
+            **Task Created Successfully!** 🎉
+            
+            **Summary:** {task_summary}
+            **Type:** {issue_type} | **Component:** {component}
+            **Estimated Duration:** {estimated_duration} days
+            **AI Priority:** {predictions['predicted_priority']}
+            **Assigned to:** {predictions['suggested_assignee']}
+            """)
+            
+            st.session_state.task_created = True
+        
+        # Buttons OUTSIDE the form
+        if st.session_state.task_created:
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Create Another Task", type="secondary"):
+                    st.session_state.task_created = False
                     st.rerun()
-                else:
+            with col2:
+                if st.button("Back to Dashboard", type="primary"):
                     st.session_state.show_new_task = False
+                    st.session_state.task_created = False
+                    st.rerun()
     
+    # Rest of your main() function code remains the same...
     # Main Dashboard
     st.markdown("---")
     
@@ -485,6 +499,7 @@ def main():
         )
         fig2.update_layout(height=300, showlegend=False)
         st.plotly_chart(fig2, use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
