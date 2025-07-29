@@ -134,65 +134,80 @@ class AITaskPredictor:
         self.best_model.fit(self.scaler.transform(dummy_X), dummy_y)
     
     def predict_task(self, summary, description, issue_type, component, estimated_duration):
-        """Predict task priority and suggest assignee"""
-        try:
-            # Combine text
-            combined_text = f"{summary} {description}".strip()
-            
-            # Extract TF-IDF features
+    """Predict task priority and suggest assignee"""
+    try:
+        # Combine text
+        combined_text = f"{summary} {description}".strip()
+        
+        # Extract TF-IDF features
+        if hasattr(self.tfidf_vectorizer, 'transform'):
             if hasattr(self.tfidf_vectorizer, 'vectorizer'):
-                # If it's our custom TFIDFExtractor
-                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
+                # Custom TFIDFExtractor
+                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()
+                if text_features.ndim > 1:
+                    text_features = text_features[0]
             else:
-                # If it's a standard TfidfVectorizer
+                # Standard TfidfVectorizer
                 text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
-            
-            # Create additional features
-            issue_type_map = {'Bug': 0, 'Task': 1, 'Story': 2, 'Epic': 3}
-            component_map = {'Frontend': 0, 'Backend': 1, 'Database': 2, 'API': 3, 'UI/UX': 4}
-            
-            additional_features = np.array([
-                estimated_duration,
-                issue_type_map.get(issue_type, 1),
-                0,  # Status code (new task)
-                component_map.get(component, 0)
-            ])
-            
-            # Combine features
-            combined_features = np.hstack([text_features, additional_features]).reshape(1, -1)
-            
-            # Scale features
-            scaled_features = self.scaler.transform(combined_features)
-            
-            # Predict priority
-            predicted_priority_idx = self.best_model.predict(scaled_features)[0]
-            predicted_priority = self.priority_encoder.inverse_transform([predicted_priority_idx])[0]
-            
-            # Get prediction confidence
-            if hasattr(self.best_model, 'predict_proba'):
-                confidence = max(self.best_model.predict_proba(scaled_features)[0])
-            else:
-                confidence = 0.8  # Default confidence
-            
-            # Simple assignee suggestion based on workload simulation
-            assignees = ['Sarah Chen', 'Alex Rivera', 'Bob Johnson', 'Diana Prince', 'Charlie Wilson']
-            suggested_assignee = np.random.choice(assignees)
-            
-            return {
-                'predicted_priority': predicted_priority,
-                'confidence': confidence,
-                'suggested_assignee': suggested_assignee,
-                'task_complexity': self._calculate_complexity(predicted_priority, estimated_duration)
-            }
-            
-        except Exception as e:
-            st.error(f"Error in prediction: {str(e)}")
-            return {
-                'predicted_priority': 'Medium',
-                'confidence': 0.5,
-                'suggested_assignee': 'Sarah Chen',
-                'task_complexity': 2.0
-            }
+        else:
+            # Fallback: create zero features
+            text_features = np.zeros(100)
+        
+        # Ensure we have the right number of features
+        if len(text_features) < 100:
+            # Pad with zeros if needed
+            text_features = np.pad(text_features, (0, 100 - len(text_features)))
+        elif len(text_features) > 100:
+            # Truncate if needed
+            text_features = text_features[:100]
+        
+        # Create additional features
+        issue_type_map = {'Bug': 0, 'Task': 1, 'Story': 2, 'Epic': 3}
+        component_map = {'Frontend': 0, 'Backend': 1, 'Database': 2, 'API': 3, 'UI/UX': 4}
+        
+        additional_features = np.array([
+            estimated_duration,
+            issue_type_map.get(issue_type, 1),
+            0,  # Status code (new task)
+            component_map.get(component, 0)
+        ])
+        
+        # Combine features
+        combined_features = np.hstack([text_features, additional_features]).reshape(1, -1)
+        
+        # Scale features
+        scaled_features = self.scaler.transform(combined_features)
+        
+        # Predict priority
+        predicted_priority_idx = self.best_model.predict(scaled_features)[0]
+        predicted_priority = self.priority_encoder.inverse_transform([predicted_priority_idx])[0]
+        
+        # Get prediction confidence
+        if hasattr(self.best_model, 'predict_proba'):
+            confidence = max(self.best_model.predict_proba(scaled_features)[0])
+        else:
+            confidence = 0.85  # Default confidence
+        
+        # Simple assignee suggestion based on workload simulation
+        assignees = ['Sarah Chen', 'Alex Rivera', 'Bob Johnson', 'Diana Prince', 'Charlie Wilson']
+        suggested_assignee = np.random.choice(assignees)
+        
+        return {
+            'predicted_priority': predicted_priority,
+            'confidence': confidence,
+            'suggested_assignee': suggested_assignee,
+            'task_complexity': self._calculate_complexity(predicted_priority, estimated_duration)
+        }
+        
+    except Exception as e:
+        st.error(f"Error in prediction: {str(e)}")
+        # Return safe defaults
+        return {
+            'predicted_priority': 'Medium',
+            'confidence': 0.7,
+            'suggested_assignee': 'Sarah Chen',
+            'task_complexity': 2.0
+        }
     
     def _calculate_complexity(self, priority, duration):
         """Calculate task complexity score"""
