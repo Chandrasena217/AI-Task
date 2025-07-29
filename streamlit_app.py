@@ -12,9 +12,6 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
-# Add the current directory to the path to import the AI task management module
-sys.path.append('.')
-
 # Set page config
 st.set_page_config(
     page_title="AI Task Manager",
@@ -70,6 +67,39 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Custom TFIDFExtractor class to match the saved models
+class TFIDFExtractor:
+    def __init__(self, max_features=100, stop_words='english'):
+        self.max_features = max_features
+        self.stop_words = stop_words
+        self.vectorizer = TfidfVectorizer(
+            max_features=max_features,
+            stop_words=stop_words,
+            lowercase=True,
+            strip_accents='ascii'
+        )
+        self.feature_names = None
+    
+    def fit(self, texts):
+        """Fit the TF-IDF vectorizer on texts"""
+        self.vectorizer.fit(texts)
+        self.feature_names = self.vectorizer.get_feature_names_out()
+        return self
+    
+    def transform(self, texts):
+        """Transform texts to TF-IDF features"""
+        return self.vectorizer.transform(texts)
+    
+    def fit_transform(self, texts):
+        """Fit and transform texts"""
+        tfidf_matrix = self.vectorizer.fit_transform(texts)
+        self.feature_names = self.vectorizer.get_feature_names_out()
+        return tfidf_matrix
+    
+    def get_feature_names(self):
+        """Get feature names"""
+        return self.feature_names
+
 class AITaskPredictor:
     def __init__(self):
         self.models = {}
@@ -85,29 +115,45 @@ class AITaskPredictor:
             if os.path.exists('models/best_model.pkl'):
                 with open('models/best_model.pkl', 'rb') as f:
                     self.best_model = pickle.load(f)
+                st.success("✅ Best model loaded successfully!")
+            else:
+                st.info("ℹ️ Pre-trained model not found. Using fallback model.")
+                self.create_fallback_models()
+                return
             
             if os.path.exists('models/scaler.pkl'):
                 with open('models/scaler.pkl', 'rb') as f:
                     self.scaler = pickle.load(f)
+                st.success("✅ Scaler loaded successfully!")
             
             if os.path.exists('models/priority_encoder.pkl'):
                 with open('models/priority_encoder.pkl', 'rb') as f:
                     self.priority_encoder = pickle.load(f)
+                st.success("✅ Priority encoder loaded successfully!")
             
             if os.path.exists('models/tfidf_extractor.pkl'):
                 with open('models/tfidf_extractor.pkl', 'rb') as f:
                     self.tfidf_vectorizer = pickle.load(f)
-                    
+                st.success("✅ TF-IDF extractor loaded successfully!")
+            else:
+                # Create fallback TF-IDF vectorizer
+                st.info("ℹ️ TF-IDF extractor not found. Creating fallback.")
+                self.tfidf_vectorizer = TFIDFExtractor(max_features=100)
+                # Fit with dummy data
+                dummy_texts = ["sample task", "bug fix", "feature request", "database migration"]
+                self.tfidf_vectorizer.fit(dummy_texts)
+                
             # Load feature arrays if they exist
             if os.path.exists('Feature Extraction Files/tfidf_features.npy'):
                 self.tfidf_features = np.load('Feature Extraction Files/tfidf_features.npy')
+                st.success("✅ TF-IDF features loaded successfully!")
             else:
                 self.tfidf_features = None
+                st.info("ℹ️ Pre-computed TF-IDF features not found.")
                 
-            st.success("✅ Models loaded successfully!")
-            
         except Exception as e:
             st.warning(f"⚠️ Could not load some models: {str(e)}")
+            st.info("🔄 Creating fallback models for demonstration...")
             self.create_fallback_models()
     
     def create_fallback_models(self):
@@ -120,18 +166,19 @@ class AITaskPredictor:
         self.priority_encoder = LabelEncoder()
         self.priority_encoder.fit(['Low', 'Medium', 'High'])
         
-        # Create dummy TF-IDF vectorizer
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        self.tfidf_vectorizer = TfidfVectorizer(max_features=100)
-        dummy_texts = ["sample task", "bug fix", "feature request"]
+        # Create TF-IDF extractor
+        self.tfidf_vectorizer = TFIDFExtractor(max_features=100)
+        dummy_texts = ["sample task", "bug fix", "feature request", "database migration", "ui improvement"]
         self.tfidf_vectorizer.fit(dummy_texts)
         
         # Train with dummy data
-        dummy_X = np.random.random((10, 104))  # 100 TF-IDF + 4 additional features
-        dummy_y = np.random.choice([0, 1, 2], 10)
+        dummy_X = np.random.random((50, 104))  # 100 TF-IDF + 4 additional features
+        dummy_y = np.random.choice([0, 1, 2], 50)
         
         self.scaler.fit(dummy_X)
         self.best_model.fit(self.scaler.transform(dummy_X), dummy_y)
+        
+        st.success("✅ Fallback models created successfully!")
     
     def predict_task(self, summary, description, issue_type, component, estimated_duration):
         """Predict task priority and suggest assignee"""
@@ -140,12 +187,26 @@ class AITaskPredictor:
             combined_text = f"{summary} {description}".strip()
             
             # Extract TF-IDF features
-            if hasattr(self.tfidf_vectorizer, 'vectorizer'):
-                # If it's our custom TFIDFExtractor
-                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
+            if hasattr(self.tfidf_vectorizer, 'transform'):
+                if hasattr(self.tfidf_vectorizer, 'vectorizer'):
+                    # Custom TFIDFExtractor
+                    text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()
+                    if text_features.ndim > 1:
+                        text_features = text_features[0]
+                else:
+                    # Standard TfidfVectorizer
+                    text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
             else:
-                # If it's a standard TfidfVectorizer
-                text_features = self.tfidf_vectorizer.transform([combined_text]).toarray()[0]
+                # Fallback: create zero features
+                text_features = np.zeros(100)
+            
+            # Ensure we have the right number of features
+            if len(text_features) < 100:
+                # Pad with zeros if needed
+                text_features = np.pad(text_features, (0, 100 - len(text_features)))
+            elif len(text_features) > 100:
+                # Truncate if needed
+                text_features = text_features[:100]
             
             # Create additional features
             issue_type_map = {'Bug': 0, 'Task': 1, 'Story': 2, 'Epic': 3}
@@ -172,7 +233,7 @@ class AITaskPredictor:
             if hasattr(self.best_model, 'predict_proba'):
                 confidence = max(self.best_model.predict_proba(scaled_features)[0])
             else:
-                confidence = 0.8  # Default confidence
+                confidence = 0.85  # Default confidence
             
             # Simple assignee suggestion based on workload simulation
             assignees = ['Sarah Chen', 'Alex Rivera', 'Bob Johnson', 'Diana Prince', 'Charlie Wilson']
@@ -187,9 +248,10 @@ class AITaskPredictor:
             
         except Exception as e:
             st.error(f"Error in prediction: {str(e)}")
+            # Return safe defaults
             return {
                 'predicted_priority': 'Medium',
-                'confidence': 0.5,
+                'confidence': 0.7,
                 'suggested_assignee': 'Sarah Chen',
                 'task_complexity': 2.0
             }
@@ -214,7 +276,7 @@ def load_sample_data():
             return df
         elif os.path.exists('Processed-Dataset.csv'):
             df = pd.read_csv('Processed-Dataset.csv')
-            return df[1]
+            return df
         else:
             # Create sample data for demonstration
             return create_demo_data()
@@ -322,7 +384,7 @@ def render_recent_tasks(df):
         
         st.markdown(f"""
         <div class="task-card">
-            <div style="display: flex; justify-content: between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="flex: 1;">
                     <strong>{task['Issue Key']}: {task['Summary']}</strong>
                     <br>
@@ -437,7 +499,7 @@ def main():
             
             st.session_state.task_created = True
         
-        # Buttons OUTSIDE the form
+        # Buttons OUTSIDE the form - this fixes the StreamlitAPIException
         if st.session_state.task_created:
             col1, col2 = st.columns(2)
             with col1:
@@ -450,7 +512,6 @@ def main():
                     st.session_state.task_created = False
                     st.rerun()
     
-    # Rest of your main() function code remains the same...
     # Main Dashboard
     st.markdown("---")
     
@@ -499,7 +560,6 @@ def main():
         )
         fig2.update_layout(height=300, showlegend=False)
         st.plotly_chart(fig2, use_container_width=True)
-
 
 if __name__ == "__main__":
     main()
